@@ -7,13 +7,21 @@ INTEGRATION_ROOT=$(dirname "$(readlink -f "$BASH_SOURCE")")
 TESTDATA="${INTEGRATION_ROOT}/testdata"
 
 # Root directory of the repository.
-CRIO_ROOT=${CRIO_ROOT:-$(cd "$INTEGRATION_ROOT/../.."; pwd -P)}
+if [[ ! -z "$CRIO_ROOT" ]]; then
+    CRIO_ROOT=${CRIO_ROOT}
+elif [[ ! -z "$TRAVIS" ]]; then
+    CRIO_ROOT="/go/src/github.com/projectatomic/libpod"
+elif [[ ! -z "$PAPR" ]]; then
+    CRIO_ROOT="/var/tmp/checkout"
+else
+    CRIO_ROOT=$(cd "$INTEGRATION_ROOT/.."; pwd -P)
+fi
 
-KPOD_BINARY=${KPOD_BINARY:-${CRIO_ROOT}/libpod/bin/kpod}
+KPOD_BINARY=${KPOD_BINARY:-${CRIO_ROOT}/bin/kpod}
 # Path of the conmon binary.
-CONMON_BINARY=${CONMON_BINARY:-${CRIO_ROOT}/libpod/bin/conmon}
+CONMON_BINARY=${CONMON_BINARY:-${CRIO_ROOT}/bin/conmon}
 # Path of the default seccomp profile.
-SECCOMP_PROFILE=${SECCOMP_PROFILE:-${CRIO_ROOT}/libpod/seccomp.json}
+SECCOMP_PROFILE=${SECCOMP_PROFILE:-${CRIO_ROOT}/seccomp.json}
 # Name of the default apparmor profile.
 APPARMOR_PROFILE=${APPARMOR_PROFILE:-crio-default}
 # Runtime
@@ -33,13 +41,13 @@ BOOT_CONFIG_FILE_PATH=${BOOT_CONFIG_FILE_PATH:-/boot/config-`uname -r`}
 # Path of apparmor parameters file.
 APPARMOR_PARAMETERS_FILE_PATH=${APPARMOR_PARAMETERS_FILE_PATH:-/sys/module/apparmor/parameters/enabled}
 # Path of the bin2img binary.
-BIN2IMG_BINARY=${BIN2IMG_BINARY:-${CRIO_ROOT}/libpod/test/bin2img/bin2img}
+BIN2IMG_BINARY=${BIN2IMG_BINARY:-${CRIO_ROOT}/test/bin2img/bin2img}
 # Path of the copyimg binary.
-COPYIMG_BINARY=${COPYIMG_BINARY:-${CRIO_ROOT}/libpod/test/copyimg/copyimg}
+COPYIMG_BINARY=${COPYIMG_BINARY:-${CRIO_ROOT}/test/copyimg/copyimg}
 # Path of tests artifacts.
-ARTIFACTS_PATH=${ARTIFACTS_PATH:-${CRIO_ROOT}/libpod/.artifacts}
+ARTIFACTS_PATH=${ARTIFACTS_PATH:-${CRIO_ROOT}/.artifacts}
 # Path of the checkseccomp binary.
-CHECKSECCOMP_BINARY=${CHECKSECCOMP_BINARY:-${CRIO_ROOT}/libpod/test/checkseccomp/checkseccomp}
+CHECKSECCOMP_BINARY=${CHECKSECCOMP_BINARY:-${CRIO_ROOT}/test/checkseccomp/checkseccomp}
 # XXX: This is hardcoded inside cri-o at the moment.
 DEFAULT_LOG_PATH=/var/log/crio/pods
 # Cgroup manager to be used
@@ -51,7 +59,19 @@ PIDS_LIMIT=${PIDS_LIMIT:-1024}
 # Log size max limit
 LOG_SIZE_MAX_LIMIT=${LOG_SIZE_MAX_LIMIT:--1}
 
-TESTDIR=$(mktemp -d)
+if [[ ! -d "/test.dir" ]]; then
+    mkdir /test.dir
+fi
+
+TESTDIR=$(mktemp -p /test.dir -d)
+
+declare -A -g IMAGES
+IMAGES+=(["alpine"]=docker.io/library/alpine:latest ["busybox"]=docker.io/library/busybox:latest)
+
+BB_GLIBC="docker.io/library/busybox:glibc"
+BB="docker.io/library/busybox:latest"
+ALPINE="docker.io/library/alpine:latest"
+FEDORA_MINIMAL="registry.fedoraproject.org/fedora-minimal:latest"
 
 # kpod pull needs a configuration file for shortname pulls
 export REGISTRIES_CONFIG_PATH="$INTEGRATION_ROOT/registries.conf"
@@ -96,68 +116,18 @@ cp "$CONMON_BINARY" "$TESTDIR/conmon"
 
 PATH=$PATH:$TESTDIR
 
-# Make sure we have a copy of the redis:alpine image.
-if ! [ -d "$ARTIFACTS_PATH"/redis-image ]; then
-    mkdir -p "$ARTIFACTS_PATH"/redis-image
-    if ! "$COPYIMG_BINARY" --import-from=docker://redis:alpine --export-to=dir:"$ARTIFACTS_PATH"/redis-image --signature-policy="$INTEGRATION_ROOT"/policy.json ; then
-        echo "Error pulling docker://redis"
-        rm -fr "$ARTIFACTS_PATH"/redis-image
-        exit 1
+for key in ${!IMAGES[@]}; do
+    if ! [ -d "$ARTIFACTS_PATH"/${key} ]; then
+        mkdir -p "$ARTIFACTS_PATH"/${key}
+        if ! "$COPYIMG_BINARY" --import-from=docker://${IMAGES[${key}]} --export-to=dir:"$ARTIFACTS_PATH"/${key} --signature-policy="$INTEGRATION_ROOT"/policy.json ; then
+            echo "Error pulling docker://${IMAGES[${key}]}"
+            rm -fr "$ARTIFACTS_PATH"/${key}
+            exit 1
+        fi
     fi
-fi
 
-# TODO: remove the code below for pulling redis:alpine using a canonical reference once
-#       https://github.com/kubernetes-incubator/cri-o/issues/531 is complete and we can
-#       pull the image using a tagged reference and then subsequently find the image without
-#       having to explicitly record the canonical reference as one of the image's names
-if ! [ -d "$ARTIFACTS_PATH"/redis-image-digest ]; then
-    mkdir -p "$ARTIFACTS_PATH"/redis-image-digest
-    if ! "$COPYIMG_BINARY" --import-from=docker://redis@sha256:03789f402b2ecfb98184bf128d180f398f81c63364948ff1454583b02442f73b --export-to=dir:"$ARTIFACTS_PATH"/redis-image-digest --signature-policy="$INTEGRATION_ROOT"/policy.json ; then
-        echo "Error pulling docker://redis@sha256:03789f402b2ecfb98184bf128d180f398f81c63364948ff1454583b02442f73b"
-        rm -fr "$ARTIFACTS_PATH"/redis-image-digest
-        exit 1
-    fi
-fi
+done
 
-# Make sure we have a copy of the runcom/stderr-test image.
-if ! [ -d "$ARTIFACTS_PATH"/stderr-test ]; then
-    mkdir -p "$ARTIFACTS_PATH"/stderr-test
-    if ! "$COPYIMG_BINARY" --import-from=docker://runcom/stderr-test:latest --export-to=dir:"$ARTIFACTS_PATH"/stderr-test --signature-policy="$INTEGRATION_ROOT"/policy.json ; then
-        echo "Error pulling docker://stderr-test"
-        rm -fr "$ARTIFACTS_PATH"/stderr-test
-        exit 1
-    fi
-fi
-
-# Make sure we have a copy of the busybox:latest image.
-if ! [ -d "$ARTIFACTS_PATH"/busybox-image ]; then
-    mkdir -p "$ARTIFACTS_PATH"/busybox-image
-    if ! "$COPYIMG_BINARY" --import-from=docker://busybox --export-to=dir:"$ARTIFACTS_PATH"/busybox-image --signature-policy="$INTEGRATION_ROOT"/policy.json ; then
-        echo "Error pulling docker://busybox"
-        rm -fr "$ARTIFACTS_PATH"/busybox-image
-        exit 1
-    fi
-fi
-
-# Make sure we have a copy of the mrunalp/oom:latest image.
-if ! [ -d "$ARTIFACTS_PATH"/oom-image ]; then
-    mkdir -p "$ARTIFACTS_PATH"/oom-image
-    if ! "$COPYIMG_BINARY" --import-from=docker://mrunalp/oom --export-to=dir:"$ARTIFACTS_PATH"/oom-image --signature-policy="$INTEGRATION_ROOT"/policy.json ; then
-        echo "Error pulling docker://mrunalp/oom"
-        rm -fr "$ARTIFACTS_PATH"/oom-image
-        exit 1
-    fi
-fi
-
-# Make sure we have a copy of the mrunalp/image-volume-test:latest image.
-if ! [ -d "$ARTIFACTS_PATH"/image-volume-test-image ]; then
-    mkdir -p "$ARTIFACTS_PATH"/image-volume-test-image
-    if ! "$COPYIMG_BINARY" --import-from=docker://mrunalp/image-volume-test --export-to=dir:"$ARTIFACTS_PATH"/image-volume-test-image --signature-policy="$INTEGRATION_ROOT"/policy.json ; then
-        echo "Error pulling docker://mrunalp/image-volume-test-image"
-        rm -fr "$ARTIFACTS_PATH"/image-volume-test-image
-        exit 1
-    fi
-fi
 
 # Communicate with Docker on the host machine.
 # Should rarely use this.
@@ -330,4 +300,10 @@ function cleanup_network_conf() {
 
 function temp_sandbox_conf() {
 	sed -e s/\"namespace\":.*/\"namespace\":\ \"$1\",/g "$TESTDATA"/sandbox_config.json > $TESTDIR/sandbox_config_$1.json
+}
+
+function copy_images() {
+    for key in ${!IMAGES[@]}; do
+        "$COPYIMG_BINARY" --root "$TESTDIR/crio" $STORAGE_OPTIONS --runroot "$TESTDIR/crio-run" --image-name=${IMAGES[${key}]} --import-from=dir:"$ARTIFACTS_PATH"/${key} --add-name=${IMAGES[${key}]}
+    done
 }

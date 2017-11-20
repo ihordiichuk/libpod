@@ -25,6 +25,10 @@ before_script:
   - export PATH=$HOME/gopath/bin:$PATH
   - export LD_LIBRARY_PATH=/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
 
+env:
+    global:
+        - TRAVIS=1
+
 jobs:
   include:
     - stage: Build and Verify
@@ -51,5 +55,6 @@ jobs:
         - make integration
       go: 1.8.x
 
-notifications:
-  irc: "chat.freenode.net#cri-o"
+# Turn off notifications until we have our own channel (After rename)
+# notifications:
+#  irc: "chat.freenode.net#cri-o"

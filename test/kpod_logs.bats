@@ -8,6 +8,10 @@ function teardown() {
     cleanup_test
 }
 
+function setup() {
+    copy_images
+}
+
 @test "display logs for container" {
     skip "Test needs to be converted to kpod run"
     start_crio
@@ -22,7 +26,7 @@ function teardown() {
     run crioctl ctr start --id "$ctr_id"
     echo "$output"
     [ "$status" -eq 0 ]
-    run ${KPOD_BINARY} $KPOD_OPTIONS logs "$ctr_id"
+    run bash -c ${KPOD_BINARY} $KPOD_OPTIONS logs "$ctr_id"
     echo "$output"
     [ "$status" -eq 0 ]
     cleanup_ctrs
@@ -44,7 +48,7 @@ function teardown() {
     run crioctl ctr start --id "$ctr_id"
     echo "$output"
     [ "$status" -eq 0 ]
-    run ${KPOD_BINARY} $KPOD_OPTIONS logs --tail 3 $ctr_id
+    run bash -c ${KPOD_BINARY} $KPOD_OPTIONS logs --tail 3 $ctr_id
     echo "$output"
     lines=$(echo "$output" | wc -l)
     [ "$status" -eq 0 ]
@@ -68,7 +72,7 @@ function teardown() {
     run crioctl ctr start --id "$ctr_id"
     echo "$output"
     [ "$status" -eq 0 ]
-    run ${KPOD_BINARY} $KPOD_OPTIONS logs --since 2017-08-07T10:10:09.056611202-04:00 $ctr_id
+    run bash -c ${KPOD_BINARY} $KPOD_OPTIONS logs --since 2017-08-07T10:10:09.056611202-04:00 $ctr_id
     echo "$output"
     [ "$status" -eq 0 ]
     cleanup_ctrs

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/projectatomic/libpod/libpod"
@@ -12,15 +13,17 @@ import (
 var runDescription = "Runs a command in a new container from the given image"
 
 var runCommand = cli.Command{
-	Name:        "run",
-	Usage:       "run a command in a new container",
-	Description: runDescription,
-	Flags:       createFlags,
-	Action:      runCmd,
-	ArgsUsage:   "IMAGE [COMMAND [ARG...]]",
+	Name:           "run",
+	Usage:          "run a command in a new container",
+	Description:    runDescription,
+	Flags:          createFlags,
+	Action:         runCmd,
+	ArgsUsage:      "IMAGE [COMMAND [ARG...]]",
+	SkipArgReorder: true,
 }
 
 func runCmd(c *cli.Context) error {
+	var imageName string
 	if err := validateFlags(c, createFlags); err != nil {
 		return err
 	}
@@ -36,8 +39,8 @@ func runCmd(c *cli.Context) error {
 	}
 
 	createImage := runtime.NewImage(createConfig.image)
-
-	if !createImage.HasImageLocal() {
+	createImage.LocalName, _ = createImage.GetLocalImageName()
+	if createImage.LocalName == "" {
 		// The image wasnt found by the user input'd name or its fqname
 		// Pull the image
 		fmt.Printf("Trying to pull %s...", createImage.PullName)
@@ -51,7 +54,11 @@ func runCmd(c *cli.Context) error {
 	defer runtime.Shutdown(false)
 	logrus.Debug("spec is ", runtimeSpec)
 
-	imageName, err := createImage.GetFQName()
+	if createImage.LocalName != "" {
+		imageName = createImage.LocalName
+	} else {
+		imageName, err = createImage.GetFQName()
+	}
 	if err != nil {
 		return err
 	}
@@ -76,7 +83,7 @@ func runCmd(c *cli.Context) error {
 	}
 
 	logrus.Debug("new container created ", ctr.ID())
-	if err := ctr.Create(); err != nil {
+	if err := ctr.Init(); err != nil {
 		return err
 	}
 	logrus.Debug("container storage created for %q", ctr.ID())
@@ -85,20 +92,38 @@ func runCmd(c *cli.Context) error {
 		libpod.WriteFile(ctr.ID(), c.String("cidfile"))
 		return nil
 	}
+
+	// Create a bool channel to track that the console socket attach
+	// is successful.
+	attached := make(chan bool)
+	// Create a waitgroup so we can sync and wait for all goroutines
+	// to finish before exiting main
+	var wg sync.WaitGroup
+
+	if !createConfig.detach {
+		// We increment the wg counter because we need to do the attach
+		wg.Add(1)
+		// Attach to the running container
+		go func() {
+			logrus.Debug("trying to attach to the container %s", ctr.ID())
+			defer wg.Done()
+			if err := ctr.Attach(false, c.String("detach-keys"), attached); err != nil {
+				logrus.Errorf("unable to attach to container %s: %q", ctr.ID(), err)
+			}
+		}()
+		if !<-attached {
+			return errors.Errorf("unable to attach to container %s", ctr.ID())
+		}
+	}
 	// Start the container
 	if err := ctr.Start(); err != nil {
 		return errors.Wrapf(err, "unable to start container %q", ctr.ID())
 	}
 	logrus.Debug("started container ", ctr.ID())
-	if createConfig.tty {
-		// Attach to the running container
-		logrus.Debug("trying to attach to the container %s", ctr.ID())
-		if err := ctr.Attach(false, c.String("detach-keys")); err != nil {
-			return errors.Wrapf(err, "unable to attach to container %s", ctr.ID())
-		}
-	} else {
+
+	if createConfig.detach {
 		fmt.Printf("%s\n", ctr.ID())
 	}
-
+	wg.Wait()
 	return nil
 }

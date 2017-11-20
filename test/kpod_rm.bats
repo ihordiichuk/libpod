@@ -8,6 +8,10 @@ function teardown() {
     cleanup_test
 }
 
+function setup() {
+    copy_images
+}
+
 @test "remove a stopped container" {
     skip "Test needs to be converted to kpod run"
     start_crio
@@ -25,7 +29,7 @@ function teardown() {
     run crioctl ctr stop --id "$ctr_id"
     echo "$output"
     [ "$status" -eq 0 ]
-    run ${KPOD_BINARY} $KPOD_OPTIONS rm "$ctr_id"
+    run bash -c ${KPOD_BINARY} $KPOD_OPTIONS rm "$ctr_id"
     echo "$output"
     [ "$status" -eq 0 ]
     cleanup_pods
@@ -46,7 +50,7 @@ function teardown() {
     run crioctl ctr start --id "$ctr_id"
     echo "$output"
     [ "$status" -eq 0 ]
-    run ${KPOD_BINARY} $KPOD_OPTIONS rm "$ctr_id"
+    run bash -c ${KPOD_BINARY} $KPOD_OPTIONS rm "$ctr_id"
     echo "$output"
     [ "$status" -ne 0 ]
     cleanup_ctrs
@@ -65,7 +69,7 @@ function teardown() {
     echo "$output"
     [ "$status" -eq 0 ]
     ctr_id="$output"
-    run ${KPOD_BINARY} $KPOD_OPTIONS rm -f "$ctr_id"
+    run bash -c ${KPOD_BINARY} $KPOD_OPTIONS rm -f "$ctr_id"
     echo "$output"
     [ "$status" -eq 0 ]
     cleanup_pods
@@ -86,7 +90,7 @@ function teardown() {
     run crioctl ctr start --id "$ctr_id"
     echo "$output"
     [ "$status" -eq 0 ]
-    run ${KPOD_BINARY} $KPOD_OPTIONS rm -f "$ctr_id"
+    run bash -c ${KPOD_BINARY} $KPOD_OPTIONS rm -f "$ctr_id"
     echo "$output"
     [ "$status" -eq 0 ]
     cleanup_pods

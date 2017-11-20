@@ -27,7 +27,10 @@ const (
 )
 
 var (
-	defaultEnvVariables = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "TERM=xterm"}
+	defaultEnvVariables = map[string]string{
+		"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"TERM": "xterm",
+	}
 )
 
 type createResourceConfig struct {
@@ -64,16 +67,16 @@ type createConfig struct {
 	cidFile            string
 	cgroupParent       string // cgroup-parent
 	command            []string
-	detach             bool         // detach
-	devices            []*pb.Device // device
-	dnsOpt             []string     //dns-opt
-	dnsSearch          []string     //dns-search
-	dnsServers         []string     //dns
-	entrypoint         string       //entrypoint
-	env                []string     //env
-	expose             []string     //expose
-	groupAdd           []uint32     // group-add
-	hostname           string       //hostname
+	detach             bool              // detach
+	devices            []*pb.Device      // device
+	dnsOpt             []string          //dns-opt
+	dnsSearch          []string          //dns-search
+	dnsServers         []string          //dns
+	entrypoint         string            //entrypoint
+	env                map[string]string //env
+	expose             []string          //expose
+	groupAdd           []uint32          // group-add
+	hostname           string            //hostname
 	image              string
 	interactive        bool              //interactive
 	ip6Address         string            //ipv6
@@ -123,17 +126,19 @@ var createDescription = "Creates a new container from the given image or" +
 	" will be created with the initial state 'created'."
 
 var createCommand = cli.Command{
-	Name:        "create",
-	Usage:       "create but do not start a container",
-	Description: createDescription,
-	Flags:       createFlags,
-	Action:      createCmd,
-	ArgsUsage:   "IMAGE [COMMAND [ARG...]]",
+	Name:           "create",
+	Usage:          "create but do not start a container",
+	Description:    createDescription,
+	Flags:          createFlags,
+	Action:         createCmd,
+	ArgsUsage:      "IMAGE [COMMAND [ARG...]]",
+	SkipArgReorder: true,
 }
 
 func createCmd(c *cli.Context) error {
 	// TODO should allow user to create based off a directory on the host not just image
 	// Need CLI support for this
+	var imageName string
 	if err := validateFlags(c, createFlags); err != nil {
 		return err
 	}
@@ -150,7 +155,8 @@ func createCmd(c *cli.Context) error {
 
 	// Deal with the image after all the args have been checked
 	createImage := runtime.NewImage(createConfig.image)
-	if !createImage.HasImageLocal() {
+	createImage.LocalName, _ = createImage.GetLocalImageName()
+	if createImage.LocalName == "" {
 		// The image wasnt found by the user input'd name or its fqname
 		// Pull the image
 		fmt.Printf("Trying to pull %s...", createImage.PullName)
@@ -162,7 +168,11 @@ func createCmd(c *cli.Context) error {
 		return err
 	}
 	defer runtime.Shutdown(false)
-	imageName, err := createImage.GetFQName()
+	if createImage.LocalName != "" {
+		imageName = createImage.LocalName
+	} else {
+		imageName, err = createImage.GetFQName()
+	}
 	if err != nil {
 		return err
 	}
@@ -257,8 +267,8 @@ func parseCreateOpts(c *cli.Context, runtime *libpod.Runtime) (*createConfig, er
 		return &createConfig{}, errors.Wrapf(err, "unable to process labels")
 	}
 	// ENVIRONMENT VARIABLES
-	env, err := getAllEnvironmentVariables(c.StringSlice("env-file"), c.StringSlice("env"))
-	if err != nil {
+	env := defaultEnvVariables
+	if err := readKVStrings(env, c.StringSlice("env-file"), c.StringSlice("env")); err != nil {
 		return &createConfig{}, errors.Wrapf(err, "unable to process environment variables")
 	}
 
@@ -312,6 +322,14 @@ func parseCreateOpts(c *cli.Context, runtime *libpod.Runtime) (*createConfig, er
 		blkioWeight = uint16(u)
 	}
 
+	// Because we cannot do a non-terminal attach, we need to set tty to true
+	// if detach is not false
+	// TODO Allow non-terminal attach
+	tty := c.Bool("tty")
+	if !c.Bool("detach") && !tty {
+		tty = true
+	}
+
 	config := &createConfig{
 		capAdd:         c.StringSlice("cap-add"),
 		capDrop:        c.StringSlice("cap-drop"),
@@ -323,7 +341,7 @@ func parseCreateOpts(c *cli.Context, runtime *libpod.Runtime) (*createConfig, er
 		dnsServers:     c.StringSlice("dns"),
 		entrypoint:     c.String("entrypoint"),
 		env:            env,
-		expose:         c.StringSlice("env"),
+		expose:         c.StringSlice("expose"),
 		groupAdd:       groupAdd,
 		hostname:       c.String("hostname"),
 		image:          image,
@@ -380,7 +398,7 @@ func parseCreateOpts(c *cli.Context, runtime *libpod.Runtime) (*createConfig, er
 		storageOpts: c.StringSlice("storage-opt"),
 		sysctl:      sysctl,
 		tmpfs:       c.StringSlice("tmpfs"),
-		tty:         c.Bool("tty"),
+		tty:         tty,
 		user:        uid,
 		group:       gid,
 		volumes:     c.StringSlice("volume"),

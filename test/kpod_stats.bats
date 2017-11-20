@@ -6,6 +6,10 @@ function teardown() {
     cleanup_test
 }
 
+function setup() {
+    copy_images
+}
+
 @test "stats single output" {
     skip "Test needs to be converted to kpod run"
     start_crio
@@ -20,7 +24,7 @@ function teardown() {
     run crioctl ctr start --id "$ctr_id"
     echo "$output"
     [ "$status" -eq 0 ]
-    run ${KPOD_BINARY} ${KPOD_OPTIONS} stats --no-stream "$ctr_id"
+    run bash -c ${KPOD_BINARY} ${KPOD_OPTIONS} stats --no-stream "$ctr_id"
     echo "$output"
     [ "$status" -eq 0 ]
     cleanup_ctrs
@@ -39,7 +43,7 @@ function teardown() {
     echo "$output"
     [ "$status" -eq 0 ]
     ctr_id="$output"
-    run ${KPOD_BINARY} ${KPOD_OPTIONS} stats --no-stream
+    run bash -c ${KPOD_BINARY} ${KPOD_OPTIONS} stats --no-stream
     echo "$output"
     [ "$status" -eq 0 ]
     cleanup_ctrs
@@ -58,7 +62,7 @@ function teardown() {
     echo "$output"
     [ "$status" -eq 0 ]
     ctr_id="$output"
-    run ${KPOD_BINARY} ${KPOD_OPTIONS} stats --no-stream --all
+    run bash -c ${KPOD_BINARY} ${KPOD_OPTIONS} stats --no-stream --all
     echo "$output"
     [ "$status" -eq 0 ]
     cleanup_ctrs
@@ -80,7 +84,7 @@ function teardown() {
     run crioctl ctr start --id "$ctr_id"
     echo "$output"
     [ "$status" -eq 0 ]
-    run ${KPOD_BINARY} ${KPOD_OPTIONS} stats --no-stream --format {{.ID}} "$ctr_id"
+    run bash -c ${KPOD_BINARY} ${KPOD_OPTIONS} stats --no-stream --format {{.ID}} "$ctr_id"
     echo "$output"
     [ "$status" -eq 0 ]
     # once ps is implemented, run ps -q and see if that equals the output from above

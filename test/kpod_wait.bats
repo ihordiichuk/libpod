@@ -3,6 +3,9 @@
 load helpers
 
 IMAGE="redis:alpine"
+function setup() {
+    copy_images
+}
 
 # Returns the POD ID
 function pod_run_from_template(){
@@ -26,7 +29,7 @@ function container_start() {
 @test "wait on a bogus container" {
     skip "Needs to be converted to kpod run"
     start_crio
-    run ${KPOD_BINARY} ${KPOD_OPTIONS} wait 12343
+    run bash -c ${KPOD_BINARY} ${KPOD_OPTIONS} wait 12343
     echo $output
     [ "$status" -eq 1 ]
     stop_crio
@@ -34,7 +37,7 @@ function container_start() {
 
 @test "wait on a stopped container" {
     skip "Needs to be converted to kpod run"
-    run ${KPOD_BINARY} ${KPOD_OPTIONS} pull docker.io/library/busybox:latest
+    run bash -c ${KPOD_BINARY} ${KPOD_OPTIONS} pull docker.io/library/busybox:latest
     echo $output
     [ "$status" -eq 0 ]
     start_crio
@@ -43,7 +46,7 @@ function container_start() {
     ctr_id=$(container_create_from_template "test-CTR" "docker.io/library/busybox:latest" '["ls"]' "${pod_id}")
     echo $ctr_id
     container_start $ctr_id
-    run ${KPOD_BINARY} ${KPOD_OPTIONS} wait $ctr_id
+    run bash -c ${KPOD_BINARY} ${KPOD_OPTIONS} wait $ctr_id
     [ "$status" -eq 0 ]
     cleanup_ctrs
     cleanup_pods
@@ -52,7 +55,7 @@ function container_start() {
 
 @test "wait on a sleeping container" {
     skip "Needs to be converted to kpod run"
-    run ${KPOD_BINARY} ${KPOD_OPTIONS} pull docker.io/library/busybox:latest
+    run bash -c ${KPOD_BINARY} ${KPOD_OPTIONS} pull docker.io/library/busybox:latest
     echo $output
     [ "$status" -eq 0 ]
     start_crio
@@ -63,7 +66,7 @@ function container_start() {
     run container_start $ctr_id
     echo $output
     [ "$status" -eq 0 ]
-    run ${KPOD_BINARY} ${KPOD_OPTIONS} wait $ctr_id
+    run bash -c ${KPOD_BINARY} ${KPOD_OPTIONS} wait $ctr_id
     echo $output
     [ "$status" -eq 0 ]
     cleanup_ctrs
